@@ -6,7 +6,7 @@
 
 ## Production-readiness decision
 
-The patch is **not yet verified as final production code**. This implementation pass addresses calibration rollback, settings coverage/bounds, Eden-compatible DSU rate scaling, duplicate preview redraws, unrelated edits, and opt-in test integration. A build, test run, and controller/runtime comparison are still required before calling it production-ready.
+The patch is **not yet verified as final production code**. This implementation pass addresses calibration rollback, settings coverage/bounds, Cemu-baseline DSU rate scaling, duplicate preview redraws, unrelated edits, and opt-in test integration. A build, test run, and controller/runtime comparison are still required before calling it production-ready.
 
 The strongest code-level explanation for an apparent “spring back” is bias learning while rotation is occurring. The gyro output subtracts the learned bias from every later sample. If the estimator learned part of an upward rotation as bias, the residual after the user stops moving can have the opposite sign. This is a plausible mechanism, not a confirmed diagnosis of the runtime symptom.
 
@@ -15,7 +15,7 @@ The strongest code-level explanation for an apparent “spring back” is bias l
 Applied in the working tree:
 
 - Calibration uses a candidate bias during an explicit run and commits it only after all 300 samples complete. Cancel and invalid-data failure discard the candidate. There is deliberately no movement/stillness rejection: a successful calibration that samples rotation can still absorb some rotation into bias.
-- DSU gyro conversion now uses Eden's local `1/312` scale and the shared conversion helper tests its pitch/roll/yaw signs and acceleration mapping. This is source-level parity; no live comparison with the user's DSU sender was run.
+- DSU gyro conversion preserves Cemu's prior degrees/second scale (`raw × 2π/360`) while the shared conversion helper tests pitch/roll/yaw signs and acceleration mapping. Eden's local `1/312` scale was tried, but increased output by about 15.4%; it was reverted after the user reported excessive sensitivity.
 - Sensitivity and threshold are finite/range-checked in `ControllerBase::set_settings()`. WPAD now passes its controller settings to `getVPADGyroChange()`, and calibration controls are disabled for providers without calibration support.
 - Loaded DSU bias is applied only when all three values are finite.
 - The gyro preview skips a redraw when Euler values are unchanged. The dialog still polls at 33 ms; no audio-performance conclusion is drawn from this change.
@@ -31,7 +31,7 @@ Not verified yet:
 ## Current end-to-end path
 
 1. DSUControllerProvider::reader_thread() receives a DSU data packet and calls integrate_motion() while holding the pad's m_mutex[index].
-2. integrate_motion() derives deltaTime, converts DSU gyro values with Eden's local 1/312 scale into radians/second, maps pitch/roll/yaw and acceleration axes, and passes the sample and threshold to WiiUMotionHandler.
+2. integrate_motion() derives deltaTime, converts DSU gyro values with Cemu's degrees/second conversion into radians/second, maps pitch/roll/yaw and acceleration axes, and passes the sample and threshold to WiiUMotionHandler.
 3. WiiUMotionHandler stores the current gyro sample, runs Mahony fusion, and returns a MotionSample containing bias-corrected gyro rates plus fused orientation/quaternion.
 4. EmulatedController::get_motion_data(sample, sensitivity, threshold) picks the first controller with motion enabled and returns its sample/settings.
 5. VPADController::update_motion() writes the scaled and thresholded rate into VPADStatus::gyroChange, and writes fused orientation/attitude fields separately.
@@ -74,13 +74,12 @@ References: src/gui/input/settings/DefaultControllerSettings.cpp:192-216; src/in
 
 **Required change:** Either restrict these controls to DSU-backed motion (and disable calibration for APIs without an implementation), or thread the settings through every consumer the UI claims to support. Make the supported API set explicit and test each supported route.
 
-### P1 — Sensitivity and practical threshold use a different DSU rate scale than Eden
+### P1 — DSU rate scale was increased, then restored after sensitivity feedback
 
-Cemu currently assumes DSU gyro values are degrees/second and converts them to radians/second (0.0174533), then radians/second → turns/second in MotionSample. That makes 100% output effectively raw value / 360. Eden's local Cemuhook UDP parser instead scales BetterJoy gyro values by 1/312 into its motion units. With the same BetterJoy DSU payload, Cemu's 100% baseline is about 86.7% of Eden's (roughly 13.3% lower). The threshold cutoff is affected by the same scale mismatch: Cemu's default .007 threshold corresponds to 2.52 numeric DSU units under its degree/second assumption; Eden's 1/312 scale corresponds to 2.184 units for the same threshold. The axis/sign mapping matches Eden; the scale does not.
-
+The initial implementation treated DSU fields as degrees/second, giving `raw / 360` turns/second at the VPAD output. A later change used Eden's local `raw / 312` scaling, a 15.4% increase. The user reported excessive sensitivity, so the conversion was restored to Cemu's prior `2π/360` factor while retaining the Eden-matched axis/sign mapping. The DSU source unit still needs confirmation with the actual sender; no numeric parity with Eden is claimed.
 References: src/input/api/DSU/DSUControllerProvider.cpp:525-531; src/input/motion/MotionSample.h:144-157; Eden src/input_common/drivers/udp_client.cpp:250-261.
 
-**Required decision/change:** If 100% and the threshold are intended to match Eden, establish and document the DSU source unit, apply the chosen baseline scale once before fusion and output, then apply the user multiplier. Verify with the same DSU sender and known rotations before changing the factor. Add tests that demonstrate 100% parity and linear behavior at 500%; do not treat the current presence of a slider as proof that its base calibration matches Eden.
+**Required decision/change:** The source unit remains a runtime assumption. Keep Cemu's previous degrees/second conversion unless a controlled same-sender comparison shows that another scale is correct for the user's DSU provider. Validate 100% and 500% linearity on-device; do not infer parity from Eden's source scale alone.
 
 ### P1 — Added calibration tests are not wired into the project test runner
 

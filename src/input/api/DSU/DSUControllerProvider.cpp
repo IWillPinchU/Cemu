@@ -519,7 +519,7 @@ void DSUControllerProvider::integrate_motion(uint8_t index, const DataResponse& 
 
 	const auto& acc = data_response.GetAcceleration();
 	const auto& gyro = data_response.GetGyro();
-	// Match Eden's Cemuhook UDP scale (1/312) and provider axis mapping.
+	// Preserve Cemu's previous degree/second rate scale; axis order follows Eden.
 	float mappedGyro[3];
 	float mappedAcceleration[3];
 	DSUMotion::MapGyro(gyro.x, gyro.y, gyro.z, mappedGyro);

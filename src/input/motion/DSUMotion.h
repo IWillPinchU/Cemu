@@ -2,9 +2,10 @@
 
 namespace DSUMotion
 {
-inline constexpr float kGyroRateScaleRadiansPerSecond = 2.0f * 3.14159265f / 312.0f;
+inline constexpr float kGyroRateScaleRadiansPerSecond = 2.0f * 3.14159265f / 360.0f;
 
-// DSU data order is pitch, yaw, roll; Eden maps it to pitch, roll, negative yaw.
+// DSU gyro fields are interpreted as degrees/second: raw * 2pi/360 gives radians/second.
+// Preserve Cemu's prior rate scale while using Eden's pitch/roll/negative-yaw mapping.
 inline void MapGyro(float pitch, float yaw, float roll, float gyro[3])
 {
 	gyro[0] = pitch * kGyroRateScaleRadiansPerSecond;

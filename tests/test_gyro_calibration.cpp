@@ -123,7 +123,7 @@ void test_threshold_and_sensitivity_output()
 void test_dsu_scale_and_axis_mapping()
 {
 	float gyro[3]{};
-	DSUMotion::MapGyro(312.0f, 624.0f, 936.0f, gyro);
+	DSUMotion::MapGyro(360.0f, 720.0f, 1080.0f, gyro);
 	CHECK(std::abs(gyro[0] - 2.0f * 3.14159265f) < 0.00001f);
 	CHECK(std::abs(gyro[1] - 6.0f * 3.14159265f) < 0.00001f);
 	CHECK(std::abs(gyro[2] + 4.0f * 3.14159265f) < 0.00001f);
