@@ -205,11 +205,11 @@ DefaultControllerSettings::DefaultControllerSettings(wxWindow* parent, const wxP
 		auto* sensitivity_label_sizer = new wxBoxSizer(wxHORIZONTAL);
 		auto* sensitivity_label = new wxStaticText(box, wxID_ANY, _("Sensitivity"));
 		sensitivity_label_sizer->Add(sensitivity_label, 1, wxALL | wxALIGN_CENTER_VERTICAL, 5);
-		const auto sensitivity = std::clamp(static_cast<int>(std::lround(m_settings.gyro_sensitivity * 100.0f)), 100, 500);
+		const auto sensitivity = std::clamp(static_cast<int>(std::lround(m_settings.gyro_sensitivity * 100.0f)), 20, 500);
 		auto* sensitivity_text = new wxStaticText(box, wxID_ANY, wxString::Format("%d%%", sensitivity));
 		sensitivity_label_sizer->Add(sensitivity_text, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5);
 		sensitivity_sizer->Add(sensitivity_label_sizer, 0, wxEXPAND);
-		auto* sensitivity_slider = new wxSlider(box, wxID_ANY, sensitivity, 100, 500);
+		auto* sensitivity_slider = new wxSlider(box, wxID_ANY, sensitivity, 20, 500);
 		sensitivity_sizer->Add(sensitivity_slider, 0, wxALL | wxEXPAND, 5);
 		sensitivity_slider->Bind(wxEVT_SLIDER, &DefaultControllerSettings::on_gyro_sensitivity_change, this,
 		                         wxID_ANY, wxID_ANY, new wxControlObject(sensitivity_text));

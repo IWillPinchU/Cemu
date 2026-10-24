@@ -105,10 +105,15 @@ void test_threshold_and_sensitivity_output()
 
 	float normal[3]{};
 	float high[3]{};
+	float low[3]{};
 	sample.getVPADGyroChange(normal, 1.0f, 0.0f);
 	sample.getVPADGyroChange(high, 5.0f, 0.0f);
+	sample.getVPADGyroChange(low, 0.20f, 0.0f);
 	for (int i = 0; i < 3; ++i)
+	{
 		CHECK(std::abs(high[i] - normal[i] * 5.0f) < 0.00001f);
+		CHECK(std::abs(low[i] - normal[i] * 0.20f) < 0.00001f);
+	}
 
 	float below_cutoff_accepted[3]{};
 	float below_cutoff_filtered[3]{};

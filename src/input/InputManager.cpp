@@ -175,7 +175,7 @@ bool InputManager::load(size_t player_index, std::string_view filename)
 				{
 					const float sensitivity = ConvertString<float>(value.child_value());
 					if (std::isfinite(sensitivity))
-						settings.gyro_sensitivity = std::clamp(sensitivity, 1.0f, 5.0f);
+						settings.gyro_sensitivity = std::clamp(sensitivity, 0.20f, 5.0f);
 				}
 
 				if (api == InputAPI::DSUClient)

@@ -216,7 +216,7 @@ void ControllerBase::set_settings(const Settings& settings)
 	auto normalized = settings;
 	if (!std::isfinite(normalized.gyro_sensitivity))
 		normalized.gyro_sensitivity = 1.0f;
-	normalized.gyro_sensitivity = std::clamp(normalized.gyro_sensitivity, 1.0f, 5.0f);
+	normalized.gyro_sensitivity = std::clamp(normalized.gyro_sensitivity, 0.20f, 5.0f);
 	if (!std::isfinite(normalized.gyro_threshold))
 		normalized.gyro_threshold = Motion::kDefaultGyroThresholdTurnsPerSecond;
 	normalized.gyro_threshold = std::clamp(
