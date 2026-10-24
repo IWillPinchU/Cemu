@@ -228,3 +228,11 @@ if (NOT ZArchive_FOUND)
 endif()
 
 add_subdirectory(src)
+
+option(CEMU_BUILD_GYRO_TESTS "Build focused gyro calibration and motion tests" OFF)
+if (CEMU_BUILD_GYRO_TESTS)
+	enable_testing()
+	add_executable(test_gyro_calibration tests/test_gyro_calibration.cpp)
+	target_include_directories(test_gyro_calibration PRIVATE tests/mock_includes src)
+	add_test(NAME gyro_calibration COMMAND test_gyro_calibration)
+endif()

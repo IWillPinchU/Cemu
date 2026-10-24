@@ -194,7 +194,8 @@ DefaultControllerSettings::DefaultControllerSettings(wxWindow* parent, const wxP
 		auto* box = new wxStaticBox(this, wxID_ANY, _("Gyroscope"));
 		auto* box_sizer = new wxStaticBoxSizer(box, wxVERTICAL);
 
-		m_gyro_panel = new wxGyroPanel(box, wxID_ANY, wxDefaultPosition, wxDefaultSize);
+		m_gyro_panel = new wxGyroPanel(box, wxID_ANY, wxDefaultPosition, wxDefaultSize,
+			m_controller->api() == InputAPI::DSUClient);
 		m_gyro_panel->SetCalibrateCallback([this]() {
 			if (m_controller)
 				m_controller->start_gyro_calibration();

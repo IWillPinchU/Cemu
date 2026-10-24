@@ -7,8 +7,8 @@
 
 #include "gui/components/wxGyroDraw.h"
 
-wxGyroPanel::wxGyroPanel(wxWindow* parent, wxWindowID id, const wxPoint& pos, const wxSize& size)
-	: wxPanel(parent, id, pos, size)
+wxGyroPanel::wxGyroPanel(wxWindow* parent, wxWindowID id, const wxPoint& pos, const wxSize& size, bool calibrationSupported)
+	: wxPanel(parent, id, pos, size), m_calibrationSupported(calibrationSupported)
 {
 	auto* sizer = new wxBoxSizer(wxVERTICAL);
 	m_preview = new wxGyroDraw(this, wxID_ANY, wxDefaultPosition, {60, 60});
@@ -40,7 +40,7 @@ void wxGyroPanel::SetMotionSample(const MotionSample& sample, GyroCalibrationSta
 {
 	if (!m_preview->IsEnabled())
 		m_preview->Enable();
-	const bool can_calibrate = state != GyroCalibrationState::Calibrating;
+	const bool can_calibrate = m_calibrationSupported && state != GyroCalibrationState::Calibrating;
 	if (m_calibrateButton->IsEnabled() != can_calibrate)
 		m_calibrateButton->Enable(can_calibrate);
 	m_preview->SetOrientation(sample);

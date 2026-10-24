@@ -2,6 +2,9 @@
 
 #include "gui/guiWrapper.h"
 
+#include <algorithm>
+#include <cmath>
+
 ControllerBase::ControllerBase(std::string_view uuid, std::string_view display_name)
 	: m_uuid{uuid}, m_display_name{display_name}
 {
@@ -210,8 +213,17 @@ ControllerBase::Settings ControllerBase::get_settings() const
 
 void ControllerBase::set_settings(const Settings& settings)
 {
+	auto normalized = settings;
+	if (!std::isfinite(normalized.gyro_sensitivity))
+		normalized.gyro_sensitivity = 1.0f;
+	normalized.gyro_sensitivity = std::clamp(normalized.gyro_sensitivity, 1.0f, 5.0f);
+	if (!std::isfinite(normalized.gyro_threshold))
+		normalized.gyro_threshold = Motion::kDefaultGyroThresholdTurnsPerSecond;
+	normalized.gyro_threshold = std::clamp(
+		normalized.gyro_threshold, 0.0f, Motion::kMaximumGyroThresholdTurnsPerSecond);
+
 	std::scoped_lock lock(m_settings_mutex);
-	m_settings = settings;
+	m_settings = normalized;
 }
 
 void ControllerBase::set_axis_settings(const AxisSetting& settings)

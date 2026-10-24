@@ -14,7 +14,7 @@ class wxGyroPanel : public wxPanel
 {
 public:
 	wxGyroPanel(wxWindow* parent, wxWindowID id, const wxPoint& pos = wxDefaultPosition,
-	            const wxSize& size = wxDefaultSize);
+	            const wxSize& size = wxDefaultSize, bool calibrationSupported = false);
 
 	void SetCalibrateCallback(std::function<void()> callback);
 	void SetMotionSample(const MotionSample& sample, GyroCalibrationState state, float progress);
@@ -27,4 +27,5 @@ private:
 	wxButton* m_calibrateButton{};
 	wxStaticText* m_status{};
 	std::function<void()> m_calibrateCallback;
+	bool m_calibrationSupported{};
 };

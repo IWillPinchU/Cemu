@@ -1,6 +1,7 @@
 #include "input/api/DSU/DSUControllerProvider.h"
 #include "input/api/DSU/DSUController.h"
 #include "input/motion/GyroThreshold.h"
+#include "input/motion/DSUMotion.h"
 
 #include <algorithm>
 #include <cmath>
@@ -518,17 +519,18 @@ void DSUControllerProvider::integrate_motion(uint8_t index, const DataResponse& 
 
 	const auto& acc = data_response.GetAcceleration();
 	const auto& gyro = data_response.GetGyro();
-
-	// DSU carries gyro as pitch, yaw, roll (degrees/sec). Match Eden's mapping:
-	// pitch -> X, roll -> Y, and negative yaw -> Z. Acceleration follows the
-	// same provider coordinate transform used by Eden's UDP input path.
+	// Match Eden's Cemuhook UDP scale (1/312) and provider axis mapping.
+	float mappedGyro[3];
+	float mappedAcceleration[3];
+	DSUMotion::MapGyro(gyro.x, gyro.y, gyro.z, mappedGyro);
+	DSUMotion::MapAcceleration(acc.x, acc.y, acc.z, mappedAcceleration);
 	m_motion_handler[index].processMotionSample(deltaTime,
-	                                            gyro.x * 0.0174533f,
-	                                            gyro.z * 0.0174533f,
-	                                            -gyro.y * 0.0174533f,
-	                                            acc.x,
-	                                            -acc.z,
-	                                            acc.y,
+	                                            mappedGyro[0],
+	                                            mappedGyro[1],
+	                                            mappedGyro[2],
+	                                            mappedAcceleration[0],
+	                                            mappedAcceleration[1],
+	                                            mappedAcceleration[2],
 	                                            m_gyro_threshold[index].load(std::memory_order_relaxed));
 	m_state[index].motion_sample = m_motion_handler[index].getMotionSample();
 }

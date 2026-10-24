@@ -62,7 +62,8 @@ void DSUController::load(const pugi::xml_node& node)
 		float x = ConvertString<float>(bx.child_value());
 		float y = ConvertString<float>(by.child_value());
 		float z = ConvertString<float>(bz.child_value());
-		set_gyro_bias(x, y, z);
+		if (std::isfinite(x) && std::isfinite(y) && std::isfinite(z))
+			set_gyro_bias(x, y, z);
 	}
 }
 

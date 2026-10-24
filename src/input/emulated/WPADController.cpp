@@ -258,7 +258,10 @@ void WPADController::KPADRead(KPADStatus_t& status, const BtnRepeat& repeat)
 
 	if (has_motion())
 	{
-		auto motion_sample = get_motion_data();
+		MotionSample motion_sample;
+		float gyro_sensitivity = 1.0f;
+		float gyro_threshold = Motion::kDefaultGyroThresholdTurnsPerSecond;
+		get_motion_data(motion_sample, gyro_sensitivity, gyro_threshold);
 
 		glm::vec3 acc;
 		motion_sample.getAccelerometer(&acc[0]);
@@ -281,7 +284,7 @@ void WPADController::KPADRead(KPADStatus_t& status, const BtnRepeat& repeat)
 		{
 			// todo
 			glm::vec3 gyroChange;
-			motion_sample.getVPADGyroChange(&gyroChange[0]);
+			motion_sample.getVPADGyroChange(&gyroChange[0], gyro_sensitivity, gyro_threshold);
 			//const auto& gyroChange = motionSample.getVPADGyroChange();
 			status.mpls.mpls.x = gyroChange.x;
 			status.mpls.mpls.y = gyroChange.y;

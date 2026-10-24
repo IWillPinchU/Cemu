@@ -68,7 +68,6 @@ public:
 	MessageHeader(uint32_t magic, uint32_t uid);
 
 	[[nodiscard]] uint16_t GetSize() const { return sizeof(MessageHeader) + m_packet_size; }
-	[[nodiscard]] uint16_t GetProtocolVersion() const { return m_protocol_version; }
 	[[nodiscard]] bool IsClientMessage() const;
 	[[nodiscard]] bool IsServerMessage() const;
 	[[nodiscard]] uint32_t GetCRC32() const { return m_crc32; }

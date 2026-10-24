@@ -50,10 +50,13 @@ void wxGyroDraw::OnPaintEvent(wxPaintEvent&)
 
 void wxGyroDraw::SetOrientation(const MotionSample& sample)
 {
-	sample.getEulerAngles(m_euler);
+	float next_euler[3];
+	sample.getEulerAngles(next_euler);
+	if (m_has_motion && std::equal(std::begin(m_euler), std::end(m_euler), std::begin(next_euler)))
+		return;
+
+	std::copy(std::begin(next_euler), std::end(next_euler), std::begin(m_euler));
 	m_has_motion = true;
-	// The settings timer drives this at display cadence; preserve the buffered
-	// background and queue a repaint instead of erasing it on every frame.
 	Refresh(false);
 }
 
