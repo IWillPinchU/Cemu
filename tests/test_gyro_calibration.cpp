@@ -130,12 +130,12 @@ void test_dsu_scale_and_axis_mapping()
 	float gyro[3]{};
 	DSUMotion::MapGyro(360.0f, 720.0f, 1080.0f, gyro);
 	CHECK(std::abs(gyro[0] - 2.0f * 3.14159265f) < 0.00001f);
-	CHECK(std::abs(gyro[1] - 6.0f * 3.14159265f) < 0.00001f);
-	CHECK(std::abs(gyro[2] + 4.0f * 3.14159265f) < 0.00001f);
+	CHECK(std::abs(gyro[1] - 4.0f * 3.14159265f) < 0.00001f);
+	CHECK(std::abs(gyro[2] - 6.0f * 3.14159265f) < 0.00001f);
 
 	float acceleration[3]{};
 	DSUMotion::MapAcceleration(1.0f, 2.0f, 3.0f, acceleration);
-	CHECK(acceleration[0] == 1.0f && acceleration[1] == -3.0f && acceleration[2] == 2.0f);
+	CHECK(acceleration[0] == 1.0f && acceleration[1] == -2.0f && acceleration[2] == -3.0f);
 }
 } // namespace
 
@@ -157,3 +157,5 @@ int main()
 		return 1;
 	}
 }
+
+

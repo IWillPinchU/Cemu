@@ -519,7 +519,7 @@ void DSUControllerProvider::integrate_motion(uint8_t index, const DataResponse& 
 
 	const auto& acc = data_response.GetAcceleration();
 	const auto& gyro = data_response.GetGyro();
-	// Preserve Cemu's previous degree/second rate scale; axis order follows Eden.
+	// DSU rate scaling (degrees/second to radians/second) and native Cemu axis mapping.
 	float mappedGyro[3];
 	float mappedAcceleration[3];
 	DSUMotion::MapGyro(gyro.x, gyro.y, gyro.z, mappedGyro);
@@ -550,3 +550,4 @@ DSUControllerProvider::ControllerState& DSUControllerProvider::ControllerState::
 	data = data_response.GetData();
 	return *this;
 }
+
