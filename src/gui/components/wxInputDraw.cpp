@@ -107,12 +107,18 @@ void wxInputDraw::OnRender(wxDC& dc)
 
 void wxInputDraw::SetAxisValue(const glm::vec2& position)
 {
+	if (m_position.x == position.x && m_position.y == position.y)
+		return;
+
 	m_position = position;
-	Refresh();
+	Refresh(false);
 }
 
 void wxInputDraw::SetDeadzone(float deadzone)
 {
+	if (m_deadzone == deadzone)
+		return;
+
 	m_deadzone = deadzone;
-	Refresh();
+	Refresh(false);
 }

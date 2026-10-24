@@ -5,6 +5,7 @@
 
 #include "input/api/ControllerProvider.h"
 
+#include <atomic>
 #include <boost/asio.hpp>
 
 #ifndef HAS_DSU
@@ -87,6 +88,13 @@ public:
 	void request_pad_data();
 	void request_pad_data(uint8_t index);
 
+	void start_gyro_calibration(uint8_t index);
+	void cancel_gyro_calibration(uint8_t index);
+	GyroCalibrationState get_gyro_calibration_state(uint8_t index, float& progress) const;
+	void set_gyro_bias(uint8_t index, float x, float y, float z);
+	void get_gyro_bias(uint8_t index, float bias[3]) const;
+	void set_gyro_threshold(uint8_t index, float threshold);
+
 
 private:
 	uint16 m_server_version = 0;
@@ -114,5 +122,7 @@ private:
 	std::queue<std::unique_ptr<ClientMessage>> m_writer_jobs;
 
 	std::array<WiiUMotionHandler, kMaxClients> m_motion_handler;
+	std::array<std::atomic<float>, kMaxClients> m_gyro_threshold{};
 	std::array<uint64, kMaxClients> m_last_motion_timestamp{};
+	std::array<std::chrono::steady_clock::time_point, kMaxClients> m_last_motion_time{};
 };

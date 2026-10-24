@@ -236,10 +236,11 @@ void VPADController::update_touch(VPADStatus_t& status)
 
 void VPADController::update_motion(VPADStatus_t& status)
 {
-	if (has_motion())
+	MotionSample motionSample;
+	float motionSensitivity = 1.0f;
+	float motionThreshold = Motion::kDefaultGyroThresholdTurnsPerSecond;
+	if (get_motion_data(motionSample, motionSensitivity, motionThreshold))
 	{
-		auto motionSample = get_motion_data();
-
 		glm::vec3 acc;
 		motionSample.getVPADAccelerometer(&acc[0]);
 		//const auto& acc = motionSample.getVPADAccelerometer();
@@ -250,7 +251,7 @@ void VPADController::update_motion(VPADStatus_t& status)
 		status.accAcceleration = motionSample.getVPADAccAcceleration();
 
 		glm::vec3 gyroChange;
-		motionSample.getVPADGyroChange(&gyroChange[0]);
+		motionSample.getVPADGyroChange(&gyroChange[0], motionSensitivity, motionThreshold);
 		//const auto& gyroChange = motionSample.getVPADGyroChange();
 		status.gyroChange.x = gyroChange.x;
 		status.gyroChange.y = gyroChange.y;

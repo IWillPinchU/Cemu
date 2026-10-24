@@ -8,6 +8,7 @@
 
 class wxCheckBox;
 class wxInputDraw;
+class wxGyroPanel;
 
 class DefaultControllerSettings : public wxDialog
 {
@@ -20,6 +21,7 @@ private:
 
 	ControllerPtr m_controller;
 	ControllerBase::Settings m_settings;
+	ControllerBase::Settings m_original_settings;
 	float m_rumble_backup;
 
 	wxTimer* m_timer;
@@ -29,14 +31,16 @@ private:
 	wxSlider* m_rotation_deadzone, *m_rotation_range;
 	wxSlider* m_trigger_deadzone, *m_trigger_range;
 	wxSlider* m_rumble;
-
 	wxCheckBox* m_use_motion = nullptr;
 
 	wxInputDraw* m_axis_draw, * m_rotation_draw, *m_trigger_draw;
+	wxGyroPanel* m_gyro_panel{nullptr};
 
 	void on_timer(wxTimerEvent& event);
 	void on_close(wxCloseEvent& event);
 	void on_deadzone_change(wxCommandEvent& event);
 	void on_range_change(wxCommandEvent& event);
 	void on_rumble_change(wxCommandEvent& event);
+	void on_gyro_sensitivity_change(wxCommandEvent& event);
+	void on_gyro_threshold_change(wxCommandEvent& event);
 };

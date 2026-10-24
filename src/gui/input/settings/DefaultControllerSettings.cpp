@@ -8,11 +8,15 @@
 #include <wx/statline.h>
 #include <wx/checkbox.h>
 #include <wx/statbox.h>
+#include <algorithm>
+#include <cmath>
 
 #include "gui/helpers/wxControlObject.h"
 #include "gui/helpers/wxHelpers.h"
 #include "gui/components/wxInputDraw.h"
+#include "gui/components/wxGyroPanel.h"
 #include "gui/input/InputAPIAddWindow.h"
+#include "input/motion/GyroThreshold.h"
 
 
 DefaultControllerSettings::DefaultControllerSettings(wxWindow* parent, const wxPoint& position, std::shared_ptr<ControllerBase> controller)
@@ -20,6 +24,7 @@ DefaultControllerSettings::DefaultControllerSettings(wxWindow* parent, const wxP
 	           wxDEFAULT_DIALOG_STYLE), m_controller(std::move(controller))
 {
 	m_settings = m_controller->get_settings();
+	m_original_settings = m_settings;
 	m_rumble_backup = m_settings.rumble;
 
 	this->SetSizeHints(wxDefaultSize, wxDefaultSize);
@@ -95,7 +100,7 @@ DefaultControllerSettings::DefaultControllerSettings(wxWindow* parent, const wxP
 			box_sizer->Add(content_sizer, 1, wxEXPAND, 0);
 		}
 
-		row_sizer->Add(box_sizer, 0, wxALL | wxEXPAND, 5);
+		row_sizer->Add(box_sizer, 1, wxALL | wxEXPAND, 5);
 	}
 	
 	// Rotation
@@ -138,7 +143,7 @@ DefaultControllerSettings::DefaultControllerSettings(wxWindow* parent, const wxP
 			box_sizer->Add(content_sizer, 1, wxEXPAND, 0);
 		}
 
-		row_sizer->Add(box_sizer, 0, wxALL | wxEXPAND, 5);
+		row_sizer->Add(box_sizer, 1, wxALL | wxEXPAND, 5);
 	}
 
 	// Trigger
@@ -181,8 +186,57 @@ DefaultControllerSettings::DefaultControllerSettings(wxWindow* parent, const wxP
 			box_sizer->Add(content_sizer, 1, wxEXPAND, 0);
 		}
 
-		row_sizer->Add(box_sizer, 0, wxALL | wxEXPAND, 5);
+		row_sizer->Add(box_sizer, 1, wxALL | wxEXPAND, 5);
 	}
+
+	if (m_controller->has_motion())
+	{
+		auto* box = new wxStaticBox(this, wxID_ANY, _("Gyroscope"));
+		auto* box_sizer = new wxStaticBoxSizer(box, wxVERTICAL);
+
+		m_gyro_panel = new wxGyroPanel(box, wxID_ANY, wxDefaultPosition, wxDefaultSize);
+		m_gyro_panel->SetCalibrateCallback([this]() {
+			if (m_controller)
+				m_controller->start_gyro_calibration();
+		});
+
+		auto* sensitivity_sizer = new wxBoxSizer(wxVERTICAL);
+		auto* sensitivity_label_sizer = new wxBoxSizer(wxHORIZONTAL);
+		auto* sensitivity_label = new wxStaticText(box, wxID_ANY, _("Sensitivity"));
+		sensitivity_label_sizer->Add(sensitivity_label, 1, wxALL | wxALIGN_CENTER_VERTICAL, 5);
+		const auto sensitivity = std::clamp(static_cast<int>(std::lround(m_settings.gyro_sensitivity * 100.0f)), 100, 500);
+		auto* sensitivity_text = new wxStaticText(box, wxID_ANY, wxString::Format("%d%%", sensitivity));
+		sensitivity_label_sizer->Add(sensitivity_text, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5);
+		sensitivity_sizer->Add(sensitivity_label_sizer, 0, wxEXPAND);
+		auto* sensitivity_slider = new wxSlider(box, wxID_ANY, sensitivity, 100, 500);
+		sensitivity_sizer->Add(sensitivity_slider, 0, wxALL | wxEXPAND, 5);
+		sensitivity_slider->Bind(wxEVT_SLIDER, &DefaultControllerSettings::on_gyro_sensitivity_change, this,
+		                         wxID_ANY, wxID_ANY, new wxControlObject(sensitivity_text));
+		box_sizer->Add(sensitivity_sizer, 0, wxEXPAND);
+
+		if (m_controller->api() == InputAPI::DSUClient)
+		{
+			auto* threshold_sizer = new wxBoxSizer(wxVERTICAL);
+			auto* threshold_label_sizer = new wxBoxSizer(wxHORIZONTAL);
+			auto* threshold_label = new wxStaticText(box, wxID_ANY, _("Gyro threshold"));
+			threshold_label_sizer->Add(threshold_label, 1, wxALL | wxALIGN_CENTER_VERTICAL, 5);
+			const auto threshold = std::clamp(static_cast<int>(std::lround(
+				m_settings.gyro_threshold / Motion::kMaximumGyroThresholdTurnsPerSecond * 100.0f)), 0, 100);
+			auto* threshold_text = new wxStaticText(box, wxID_ANY, wxString::Format("%d%%", threshold));
+			threshold_label_sizer->Add(threshold_text, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5);
+			threshold_sizer->Add(threshold_label_sizer, 0, wxEXPAND);
+			auto* threshold_slider = new wxSlider(box, wxID_ANY, threshold, 0, 100);
+			threshold_slider->SetToolTip(_("100% is 0.1 turns/second. Gyro rates below the threshold are ignored; 0% disables the cutoff."));
+			threshold_sizer->Add(threshold_slider, 0, wxALL | wxEXPAND, 5);
+			threshold_slider->Bind(wxEVT_SLIDER, &DefaultControllerSettings::on_gyro_threshold_change, this,
+			                       wxID_ANY, wxID_ANY, new wxControlObject(threshold_text));
+			box_sizer->Add(threshold_sizer, 0, wxEXPAND);
+		}
+
+		box_sizer->Add(m_gyro_panel, 0, wxALL | wxALIGN_CENTER, 3);
+		row_sizer->Add(box_sizer, 1, wxALL | wxEXPAND, 5);
+	}
+
 	sizer->Add(row_sizer);
 
 	{
@@ -196,7 +250,10 @@ DefaultControllerSettings::DefaultControllerSettings(wxWindow* parent, const wxP
 		control_sizer->Add(0, 0, 0, wxEXPAND, 5);
 
 		auto* cancel_button = new wxButton(this, wxID_ANY, _("Cancel"));
-		cancel_button->Bind(wxEVT_BUTTON, [this](auto&) { EndModal(wxID_CANCEL); });
+		cancel_button->Bind(wxEVT_BUTTON, [this](auto&) {
+			m_controller->set_settings(m_original_settings);
+			EndModal(wxID_CANCEL);
+		});
 		control_sizer->Add(cancel_button, 0, wxALL, 5);
 
 		auto* calibrate_button = new wxButton(this, wxID_ANY, _("Calibrate"));
@@ -216,13 +273,19 @@ DefaultControllerSettings::DefaultControllerSettings(wxWindow* parent, const wxP
 
 	m_timer = new wxTimer(this);
 	Bind(wxEVT_TIMER, &DefaultControllerSettings::on_timer, this);
-	m_timer->Start(100);
+	// Keep the controller preview responsive without polling and repainting at
+	// 60 Hz from the settings dialog while the emulator may still be running.
+	m_timer->Start(33);
 }
 
 DefaultControllerSettings::~DefaultControllerSettings()
 {
 	m_controller->stop_rumble();
 	m_timer->Stop();
+	// Preserve the calibrated bias while clearing transient progress/success state.
+	m_controller->cancel_gyro_calibration();
+	if (m_gyro_panel)
+		m_gyro_panel->SetUnavailable();
 }
 
 void DefaultControllerSettings::update_settings()
@@ -262,6 +325,15 @@ void DefaultControllerSettings::on_timer(wxTimerEvent& event)
 
 	m_trigger_draw->SetDeadzone(m_settings.trigger.deadzone);
 	m_trigger_draw->SetAxisValue(state.trigger);
+
+	if (m_gyro_panel && m_controller->has_motion())
+	{
+		float progress = 0.0f;
+		const auto calibrationState = m_controller->get_gyro_calibration_state(progress);
+		m_gyro_panel->SetMotionSample(m_controller->get_motion_sample(), calibrationState, progress);
+	}
+	else if (m_gyro_panel)
+		m_gyro_panel->SetUnavailable();
 }
 
 void DefaultControllerSettings::on_close(wxCloseEvent& event)
@@ -315,4 +387,26 @@ void DefaultControllerSettings::on_rumble_change(wxCommandEvent& event)
 	m_controller->set_rumble(m_rumble_backup);
 
 	m_rumble_time = std::chrono::steady_clock::now();
+}
+
+void DefaultControllerSettings::on_gyro_sensitivity_change(wxCommandEvent& event)
+{
+	update_slider_text(event);
+	m_settings.gyro_sensitivity = static_cast<float>(event.GetInt()) / 100.0f;
+	m_controller->set_settings(m_settings);
+}
+
+void DefaultControllerSettings::on_gyro_threshold_change(wxCommandEvent& event)
+{
+	const auto percentage = std::clamp(event.GetInt(), 0, 100);
+	const auto threshold = Motion::kMaximumGyroThresholdTurnsPerSecond *
+	                       static_cast<float>(percentage) / 100.0f;
+	auto* control = dynamic_cast<wxControlObject*>(event.GetEventUserData());
+	if (control)
+	{
+		if (auto* text = control->GetControl<wxStaticText>())
+			text->SetLabel(wxString::Format("%d%%", percentage));
+	}
+	m_settings.gyro_threshold = threshold;
+	m_controller->set_settings(m_settings);
 }

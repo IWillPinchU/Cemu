@@ -59,6 +59,7 @@ public:
 
 	bool has_motion() const;
 	MotionSample get_motion_data() const;
+	bool get_motion_data(MotionSample& sample, float& sensitivity, float& threshold) const;
 
 	// some controllers (nunchuck) provide extra motion data
 	bool has_second_motion() const;

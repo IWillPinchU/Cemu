@@ -1,5 +1,8 @@
 #include "input/api/DSU/DSUController.h"
+#include "input/motion/GyroThreshold.h"
 
+#include <algorithm>
+#include <cmath>
 #include <boost/program_options/value_semantic.hpp>
 
 DSUController::DSUController(uint32 index)
@@ -8,6 +11,7 @@ DSUController::DSUController(uint32 index)
 	if (index >= DSUControllerProvider::kMaxClients)
 		throw std::runtime_error(fmt::format("max {} dsu controllers are supported! given index: {}",
 		                                     DSUControllerProvider::kMaxClients, index));
+	m_settings.motion = true;
 }
 
 DSUController::DSUController(uint32 index, const DSUProviderSettings& settings)
@@ -16,6 +20,7 @@ DSUController::DSUController(uint32 index, const DSUProviderSettings& settings)
 	if (index >= DSUControllerProvider::kMaxClients)
 		throw std::runtime_error(fmt::format("max {} dsu controllers are supported! given index: {}",
 			DSUControllerProvider::kMaxClients, index));
+	m_settings.motion = true;
 }
 
 void DSUController::save(pugi::xml_node& node)
@@ -26,6 +31,12 @@ void DSUController::save(pugi::xml_node& node)
 		fmt::format("{}", m_provider->get_settings().ip).c_str());
 	node.append_child("port").append_child(pugi::node_pcdata).set_value(
 		fmt::format("{}", m_provider->get_settings().port).c_str());
+
+	float bias[3]{};
+	get_gyro_bias(bias);
+	node.append_child("gyro_bias_x").append_child(pugi::node_pcdata).set_value(fmt::format("{:.6f}", bias[0]).c_str());
+	node.append_child("gyro_bias_y").append_child(pugi::node_pcdata).set_value(fmt::format("{:.6f}", bias[1]).c_str());
+	node.append_child("gyro_bias_z").append_child(pugi::node_pcdata).set_value(fmt::format("{:.6f}", bias[2]).c_str());
 }
 
 void DSUController::load(const pugi::xml_node& node)
@@ -41,6 +52,18 @@ void DSUController::load(const pugi::xml_node& node)
 	const auto provider = InputManager::instance().get_api_provider(api(), settings);
 	update_provider(std::dynamic_pointer_cast<DSUControllerProvider>(provider));
 	connect();
+	m_provider->set_gyro_threshold(m_index, get_settings().gyro_threshold);
+
+	const auto bx = node.child("gyro_bias_x");
+	const auto by = node.child("gyro_bias_y");
+	const auto bz = node.child("gyro_bias_z");
+	if (bx && by && bz)
+	{
+		float x = ConvertString<float>(bx.child_value());
+		float y = ConvertString<float>(by.child_value());
+		float z = ConvertString<float>(bz.child_value());
+		set_gyro_bias(x, y, z);
+	}
 }
 
 bool DSUController::connect()
@@ -60,6 +83,44 @@ bool DSUController::is_connected()
 MotionSample DSUController::get_motion_sample()
 {
 	return m_provider->get_motion_sample(m_index);
+}
+
+void DSUController::set_settings(const ControllerBase::Settings& settings)
+{
+	auto normalized_settings = settings;
+	if (!std::isfinite(normalized_settings.gyro_threshold))
+		normalized_settings.gyro_threshold = Motion::kDefaultGyroThresholdTurnsPerSecond;
+	normalized_settings.gyro_threshold = std::clamp(
+		normalized_settings.gyro_threshold, 0.0f, Motion::kMaximumGyroThresholdTurnsPerSecond);
+
+	ControllerBase::set_settings(normalized_settings);
+	if (m_provider)
+		m_provider->set_gyro_threshold(m_index, normalized_settings.gyro_threshold);
+}
+
+void DSUController::start_gyro_calibration()
+{
+	m_provider->start_gyro_calibration(m_index);
+}
+
+void DSUController::cancel_gyro_calibration()
+{
+	m_provider->cancel_gyro_calibration(m_index);
+}
+
+GyroCalibrationState DSUController::get_gyro_calibration_state(float& progress) const
+{
+	return m_provider->get_gyro_calibration_state(m_index, progress);
+}
+
+void DSUController::set_gyro_bias(float x, float y, float z)
+{
+	m_provider->set_gyro_bias(m_index, x, y, z);
+}
+
+void DSUController::get_gyro_bias(float bias[3]) const
+{
+	m_provider->get_gyro_bias(m_index, bias);
 }
 
 bool DSUController::has_position()

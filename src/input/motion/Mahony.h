@@ -1,7 +1,8 @@
 #pragma once
 
-#include <math.h>
 #include <cmath>
+#include "GyroCalibration.h"
+#include "GyroThreshold.h"
 #include "util/math/quaternion.h"
 
 class MahonySensorFusion
@@ -9,39 +10,83 @@ class MahonySensorFusion
 public:
 	MahonySensorFusion()
 	{
-		// assume default forward pose (holding controller in hand, tilted forward so the sticks/buttons face upward)
-		m_imuQ.Assign(sqrtf(0.5), sqrtf(0.5), 0.0f, 0.0f);
+		resetOrientation();
+	}
+
+	void resetOrientation()
+	{
+		// Default forward pose (holding controller forward, buttons/sticks facing up)
+		m_imuQ.Assign(std::sqrt(0.5f), std::sqrt(0.5f), 0.0f, 0.0f);
+		m_roll = 0.0f;
+		m_pitch = 0.0f;
+		m_yaw = 0.0f;
+		m_rollWinding = 0;
+		m_pitchWinding = 0;
+		m_yawWinding = 0;
+	}
+
+	void startGyroCalibration()
+	{
+		m_calibration.start();
+	}
+
+	void cancelGyroCalibration()
+	{
+		m_calibration.cancel();
+	}
+
+	GyroCalibrationState getGyroCalibrationState(float& progress) const
+	{
+		return m_calibration.getState(progress);
+	}
+
+	void setGyroBias(float x, float y, float z)
+	{
+		m_calibration.setBias(x, y, z);
 	}
 
 	// gx, gy, gz are in radians/sec
-	void updateIMU(float deltaTime, float gx, float gy, float gz, float ax, float ay, float az)
+	void updateIMU(float deltaTime, float gx, float gy, float gz, float ax, float ay, float az,
+	                float gyroThreshold = Motion::kDefaultGyroThresholdTurnsPerSecond)
 	{
+		if (!std::isfinite(deltaTime) || !std::isfinite(gx) || !std::isfinite(gy) || !std::isfinite(gz) ||
+		    !std::isfinite(ax) || !std::isfinite(ay) || !std::isfinite(az) || deltaTime <= 0.0f)
+		{
+			float progress = 0.0f;
+			if (m_calibration.getState(progress) == GyroCalibrationState::Calibrating)
+				m_calibration.fail();
+			return;
+		}
+
+		// Safeguard against NaN / Inf / zero quaternion
+		if (!std::isfinite(m_imuQ.w) || !std::isfinite(m_imuQ.x) || !std::isfinite(m_imuQ.y) || !std::isfinite(m_imuQ.z) ||
+		    (m_imuQ.w * m_imuQ.w + m_imuQ.x * m_imuQ.x + m_imuQ.y * m_imuQ.y + m_imuQ.z * m_imuQ.z) < 0.0001f)
+		{
+			resetOrientation();
+		}
+
 		Vector3f av(ax, ay, az);
 		Vector3f gv(gx, gy, gz);
 		if (deltaTime > 0.2f)
-			deltaTime = 0.2f; // dont let stutter mess up the internal state
-		updateGyroBias(gx, gy, gz);
-		gv.x -= m_gyroBias[0];
-		gv.y -= m_gyroBias[1];
-		gv.z -= m_gyroBias[2];
+			deltaTime = 0.2f;
 
-		// ignore small angles to avoid drift due to bias (especially on yaw)
-		if (fabs(gv.x) < 0.015f)
-			gv.x = 0.0f;
-		if (fabs(gv.y) < 0.015f)
-			gv.y = 0.0f;
-		if (fabs(gv.z) < 0.015f)
-			gv.z = 0.0f;
+		if (m_calibration.update(gx, gy, gz, ax, ay, az))
+			resetOrientation();
+		float gyroBias[3];
+		m_calibration.getBias(gyroBias);
+		gv.x -= gyroBias[0];
+		gv.y -= gyroBias[1];
+		gv.z -= gyroBias[2];
 
-		// cemuLog_logDebug(LogType::Force, "[IMU Quat] time {:7.4} | {:7.2} {:7.2} {:7.2} {:7.2} | gyro( - bias) {:7.4} {:7.4} {:7.4} | acc {:7.2} {:7.2} {:7.2} | GyroBias {:7.4} {:7.4} {:7.4}", deltaTime, m_imuQ.x, m_imuQ.y, m_imuQ.z, m_imuQ.w, gv.x, gv.y, gv.z, ax, ay, az, m_gyroBias[0], m_gyroBias[1], m_gyroBias[2]);
+		if (Motion::IsGyroRateBelowThreshold(gv.x, gv.y, gv.z, gyroThreshold))
+			gv = {};
 
-		if (fabs(av.x) > 0.000001f || fabs(av.y) > 0.000001f || fabs(av.z) > 0.000001f)
+		if (std::fabs(av.x) > 0.000001f || std::fabs(av.y) > 0.000001f || std::fabs(av.z) > 0.000001f)
 		{
 			av.Normalize();
 			Vector3f grav = m_imuQ.GetVectorZ();
 			grav.Scale(0.5f);
 			Vector3f errorFeedback = grav.Cross(av);
-			// apply scaled feedback
 			gv -= errorFeedback;
 		}
 		gv.Scale(0.5f * deltaTime);
@@ -50,17 +95,17 @@ public:
 		updateOrientationAngles();
 	}
 
-	float getRollRadians()
+	float getRollRadians() const
 	{
 		return m_roll + (float)m_rollWinding * 2.0f * 3.14159265f;
 	}
 
-	float getPitchRadians()
+	float getPitchRadians() const
 	{
 		return m_pitch + (float)m_pitchWinding * 2.0f * 3.14159265f;
 	}
 
-	float getYawRadians()
+	float getYawRadians() const
 	{
 		return m_yaw + (float)m_yawWinding * 2.0f * 3.14159265f;
 	}
@@ -75,14 +120,18 @@ public:
 
 	void getGyroBias(float gBias[3]) const
 	{
-		gBias[0] = m_gyroBias[0];
-		gBias[1] = m_gyroBias[1];
-		gBias[2] = m_gyroBias[2];
+		m_calibration.getBias(gBias);
+	}
+
+	void getEulerAngles(float euler[3]) const
+	{
+		euler[0] = m_roll;
+		euler[1] = m_pitch;
+		euler[2] = m_yaw;
 	}
 
 private:
-
-	// calculate roll, yaw and pitch in radians. (-0.5 to 0.5)
+	// calculate roll, yaw and pitch in radians (-0.5 to 0.5)
 	void calcOrientation()
 	{
 		float sinr_cosp = 2.0f * (m_imuQ.z * m_imuQ.w + m_imuQ.x * m_imuQ.y);
@@ -91,7 +140,7 @@ private:
 
 		// pitch (y-axis rotation)
 		float sinp = 2.0f * (m_imuQ.z * m_imuQ.x - m_imuQ.y * m_imuQ.w);
-		if (std::abs(sinp) >= 1.0)
+		if (std::abs(sinp) >= 1.0f)
 			m_pitch = std::copysign(3.14159265359f / 2.0f, sinp);
 		else
 			m_pitch = std::asin(sinp);
@@ -124,42 +173,18 @@ private:
 		float prevPitch = m_pitch;
 		float prevYaw = m_yaw;
 		calcOrientation();
-		// calculate roll, yaw and pitch including winding count to match what VPAD API returns
 		m_rollWinding += calcWindingCountChange(prevRoll, m_roll);
 		m_pitchWinding += calcWindingCountChange(prevPitch, m_pitch);
 		m_yawWinding += calcWindingCountChange(prevYaw, m_yaw);
 	}
 
-	void updateGyroBias(float gx, float gy, float gz)
-	{
-		// dont let actual movement influence the bias
-		// but be careful about setting this too low, there are controllers out there with really bad bias (my Switch Pro had -0.0933 0.0619 0.0179 in resting state)
-		if (fabs(gx) >= 0.35f || fabs(gy) >= 0.35f || fabs(gz) >= 0.35f)
-			return;
-
-		m_gyroTotalSum[0] += gx;
-		m_gyroTotalSum[1] += gy;
-		m_gyroTotalSum[2] += gz;
-		m_gyroTotalSampleCount++;
-		if (m_gyroTotalSampleCount >= 200)
-		{
-			m_gyroBias[0] = (float)(m_gyroTotalSum[0] / (double)m_gyroTotalSampleCount);
-			m_gyroBias[1] = (float)(m_gyroTotalSum[1] / (double)m_gyroTotalSampleCount);
-			m_gyroBias[2] = (float)(m_gyroTotalSum[2] / (double)m_gyroTotalSampleCount);
-		}
-	}
-
-	private:
-		Quaternionf m_imuQ; // current orientation
-		// angle data
-		float m_roll{};
-		float m_pitch{};
-		float m_yaw{};
-		int m_rollWinding{};
-		int m_pitchWinding{};
-		int m_yawWinding{};
-		// gyro bias
-		float m_gyroBias[3]{};
-		double m_gyroTotalSum[3]{};
-		uint64 m_gyroTotalSampleCount{};
+	Quaternionf m_imuQ; // current orientation
+	// angle data
+	float m_roll{};
+	float m_pitch{};
+	float m_yaw{};
+	int m_rollWinding{};
+	int m_pitchWinding{};
+	int m_yawWinding{};
+	GyroCalibration m_calibration;
 };

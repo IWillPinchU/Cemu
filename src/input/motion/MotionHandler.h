@@ -1,6 +1,7 @@
 #pragma once
 #include "Mahony.h"
 #include "MotionSample.h"
+#include "GyroThreshold.h"
 
 // utility class to translate external motion input (DSU, SDL GamePad sensors) into the values expected by VPAD API (and maybe others in the future)
 class WiiUMotionHandler
@@ -10,7 +11,8 @@ public:
 	void processMotionSample(
 		float deltaTime,
 		float gx, float gy, float gz,
-		float accx, float accy, float accz)
+		float accx, float accy, float accz,
+		float gyroThreshold = Motion::kDefaultGyroThresholdTurnsPerSecond)
 	{
 		m_gyro[0] = gx;
 		m_gyro[1] = gy;
@@ -22,7 +24,7 @@ public:
 		m_acc[1] = accy;
 		m_acc[2] = accz;
 		// integrate acc and gyro samples into IMU
-		m_imu.updateIMU(deltaTime, gx, gy, gz, accx, accy, accz);
+		m_imu.updateIMU(deltaTime, gx, gy, gz, accx, accy, accz, gyroThreshold);
 
 		// get orientation from IMU
 		m_orientation[0] = _radToOrientation(-m_imu.getYawRadians()) - 0.50f;
@@ -40,7 +42,34 @@ public:
 		gyroDebiased[0] = m_gyro[0] - gBias[0];
 		gyroDebiased[1] = m_gyro[1] - gBias[1];
 		gyroDebiased[2] = m_gyro[2] - gBias[2];
-		return MotionSample(m_acc, MotionSample::calculateAccAcceleration(m_prevAcc, m_acc), gyroDebiased, m_orientation, q);
+		float euler[3];
+		m_imu.getEulerAngles(euler);
+		return MotionSample(m_acc, MotionSample::calculateAccAcceleration(m_prevAcc, m_acc), gyroDebiased, m_orientation, q, euler);
+	}
+
+	void startGyroCalibration()
+	{
+		m_imu.startGyroCalibration();
+	}
+
+	void cancelGyroCalibration()
+	{
+		m_imu.cancelGyroCalibration();
+	}
+
+	GyroCalibrationState getGyroCalibrationState(float& progress) const
+	{
+		return m_imu.getGyroCalibrationState(progress);
+	}
+
+	void setGyroBias(float x, float y, float z)
+	{
+		m_imu.setGyroBias(x, y, z);
+	}
+
+	void getGyroBias(float bias[3]) const
+	{
+		m_imu.getGyroBias(bias);
 	}
 private:
 

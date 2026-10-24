@@ -18,6 +18,10 @@ add_library(CemuGui
   components/wxGameList.h
   components/wxInputDraw.cpp
   components/wxInputDraw.h
+  components/wxGyroDraw.cpp
+  components/wxGyroDraw.h
+  components/wxGyroPanel.cpp
+  components/wxGyroPanel.h
   components/wxLogCtrl.cpp
   components/wxLogCtrl.h
   components/wxTitleManagerList.cpp

@@ -76,7 +76,8 @@ DataRequest::DataRequest(uint32_t uid, uint8_t index, const MACAddress_t& mac_ad
 
 bool ServerMessage::ValidateCRC32(size_t size) const
 {
-	return GetCRC32() == CRC32(size);
+	return IsServerMessage() && GetProtocolVersion() == kProtocolVersion && GetSize() == size &&
+	       GetCRC32() == CRC32(size);
 }
 
 bool VersionResponse::IsValid() const

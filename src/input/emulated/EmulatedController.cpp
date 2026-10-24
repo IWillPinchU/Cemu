@@ -1,4 +1,5 @@
 #include "input/emulated/EmulatedController.h"
+#include "input/motion/GyroThreshold.h"
 
 #include "input/api/Controller.h"
 
@@ -120,6 +121,27 @@ MotionSample EmulatedController::get_motion_data() const
 	}
 
 	return {};
+}
+
+bool EmulatedController::get_motion_data(MotionSample& sample, float& sensitivity, float& threshold) const
+{
+	std::shared_lock lock(m_mutex);
+	for (const auto& controller : m_controllers)
+	{
+		if (!controller->use_motion())
+			continue;
+
+		const auto settings = controller->get_settings();
+		sensitivity = settings.gyro_sensitivity;
+		threshold = settings.gyro_threshold;
+		sample = controller->get_motion_sample();
+		return true;
+	}
+
+	sample = {};
+	sensitivity = 1.0f;
+	threshold = Motion::kDefaultGyroThresholdTurnsPerSecond;
+	return false;
 }
 
 bool EmulatedController::has_second_motion() const

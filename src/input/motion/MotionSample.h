@@ -1,6 +1,7 @@
 #pragma once
 #include "util/math/vector3.h"
 #include "util/math/quaternion.h"
+#include "input/motion/GyroThreshold.h"
 
 struct Quat
 {
@@ -107,7 +108,7 @@ public:
 	MotionSample() = default;
 
 	MotionSample(float acc[3], float accAcceleration, float gyro[3], float orientation[3],
-		float quaternion[4]
+		float quaternion[4], const float euler[3] = nullptr
 	)
 	{
 		m_acc[0] = acc[0];
@@ -124,6 +125,12 @@ public:
 		m_q[1] = quaternion[1];
 		m_q[2] = quaternion[2];
 		m_q[3] = quaternion[3];
+		if (euler)
+		{
+			m_euler[0] = euler[0];
+			m_euler[1] = euler[1];
+			m_euler[2] = euler[2];
+		}
 		m_accMagnitude = sqrtf(m_acc[0] * m_acc[0] + m_acc[1] * m_acc[1] + m_acc[2] * m_acc[2]);
 	}
 
@@ -134,19 +141,22 @@ public:
 		orientation[2] = m_orientation[2];
 	}
 
-	void getVPADGyroChange(float gyro[3])
+	void getVPADGyroChange(float gyro[3], float sensitivity = 1.0f,
+	                       float threshold = Motion::kDefaultGyroThresholdTurnsPerSecond)
 	{
-		// filter noise
-		if (fabs(gyro[0]) < 0.012f)
-			gyro[0] = 0.0f;
-		if (fabs(gyro[1]) < 0.012f)
-			gyro[1] = 0.0f;
-		if (fabs(gyro[2]) < 0.012f)
-			gyro[2] = 0.0f;
-		// convert
+		// VPAD gyro rates and the threshold are expressed in turns/second. Keep
+		// the threshold independent of sensitivity so gain does not alter filtering.
+		if (Motion::IsGyroRateBelowThreshold(m_gyro[0], m_gyro[1], m_gyro[2], threshold))
+		{
+			gyro[0] = gyro[1] = gyro[2] = 0.0f;
+			return;
+		}
 		gyro[0] = _radToOrientation(-m_gyro[0]);
 		gyro[1] = _radToOrientation(-m_gyro[1]);
 		gyro[2] = _radToOrientation(m_gyro[2]);
+		gyro[0] *= sensitivity;
+		gyro[1] *= sensitivity;
+		gyro[2] *= sensitivity;
 	}
 
 	void getVPADAccelerometer(float acc[3])
@@ -226,6 +236,13 @@ public:
 		gyro[2] = m_gyro[2];
 	}
 
+	void getEulerAngles(float euler[3]) const
+	{
+		euler[0] = m_euler[0];
+		euler[1] = m_euler[1];
+		euler[2] = m_euler[2];
+	}
+
 private:
 	static float _radToOrientation(float rad)
 	{
@@ -243,6 +260,7 @@ private:
 	float m_accAcceleration{};
 	float m_orientation[3]{};
 	float m_q[4]{};
+	float m_euler[3]{};
 	// calculated values
 	float m_accMagnitude{};
 };

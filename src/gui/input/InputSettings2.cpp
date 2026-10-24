@@ -288,7 +288,6 @@ wxWindow* InputSettings2::initialize_page(size_t index)
 		page_data.m_controller_calibrate = calibrate;
 		page_data.m_controller_clear = clear;
 		page_data.m_controller_connected = connected_button;
-
 	}
 
 	sizer->Add(new wxStaticLine(page), wxGBPosition(6, 0), wxGBSpan(1, 6), wxEXPAND);
@@ -512,6 +511,7 @@ void InputSettings2::on_notebook_page_changed(wxBookCtrlEvent& event)
 void InputSettings2::on_timer(wxTimerEvent&)
 {
 	auto& page_data = get_current_page_data();
+
 	if (!page_data.m_controller) {
 		return;
 	}

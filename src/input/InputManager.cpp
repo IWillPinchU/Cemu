@@ -1,6 +1,9 @@
 #include "input/InputManager.h"
 #include "config/ActiveSettings.h"
 #include "input/ControllerFactory.h"
+#include "input/motion/GyroThreshold.h"
+#include <algorithm>
+#include <cmath>
 #include <boost/property_tree/ini_parser.hpp>
 #include <pugixml.hpp>
 #include "Cafe/GameProfile/GameProfile.h"
@@ -167,6 +170,24 @@ bool InputManager::load(size_t player_index, std::string_view filename)
 
 				if (const auto value = cnode.child("motion"))
 					settings.motion = ConvertString<bool>(value.child_value());
+
+				if (const auto value = cnode.child("gyro_sensitivity"))
+				{
+					const float sensitivity = ConvertString<float>(value.child_value());
+					if (std::isfinite(sensitivity))
+						settings.gyro_sensitivity = std::clamp(sensitivity, 1.0f, 5.0f);
+				}
+
+				if (api == InputAPI::DSUClient)
+				{
+					if (const auto value = cnode.child("gyro_threshold"))
+					{
+						const float threshold = ConvertString<float>(value.child_value());
+						if (std::isfinite(threshold))
+							settings.gyro_threshold = std::clamp(
+								threshold, 0.0f, Motion::kMaximumGyroThresholdTurnsPerSecond);
+					}
+				}
 
 				controller->set_settings(settings);
 
@@ -498,8 +519,15 @@ bool InputManager::save(size_t player_index, std::string_view filename)
 		const auto& settings = controller->get_settings();
 
 		if (controller->has_motion())
+		{
 			controller_node.append_child("motion").append_child(pugi::node_pcdata).set_value(
 				fmt::format("{}", settings.motion).c_str());
+			controller_node.append_child("gyro_sensitivity").append_child(pugi::node_pcdata).set_value(
+				fmt::format("{:.2f}", settings.gyro_sensitivity).c_str());
+			if (controller->api() == InputAPI::DSUClient)
+				controller_node.append_child("gyro_threshold").append_child(pugi::node_pcdata).set_value(
+					fmt::format("{:.3f}", settings.gyro_threshold).c_str());
+		}
 
 		if (controller->has_rumble())
 			controller_node.append_child("rumble").append_child(pugi::node_pcdata).set_value(

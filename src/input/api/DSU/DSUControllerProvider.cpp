@@ -1,5 +1,9 @@
 #include "input/api/DSU/DSUControllerProvider.h"
 #include "input/api/DSU/DSUController.h"
+#include "input/motion/GyroThreshold.h"
+
+#include <algorithm>
+#include <cmath>
 
 #if BOOST_OS_WINDOWS
 #include <boost/asio/detail/socket_option.hpp>
@@ -12,6 +16,8 @@
 DSUControllerProvider::DSUControllerProvider()
 	: base_type(), m_uid(rand()), m_socket(m_io_service)
 {
+	for (auto& threshold : m_gyro_threshold)
+		threshold.store(Motion::kDefaultGyroThresholdTurnsPerSecond, std::memory_order_relaxed);
 	if (!connect())
 	{
 		throw std::runtime_error("dsu client can't open the udp connection");
@@ -26,6 +32,8 @@ DSUControllerProvider::DSUControllerProvider()
 DSUControllerProvider::DSUControllerProvider(const DSUProviderSettings& settings)
 	: base_type(settings), m_uid(rand()), m_socket(m_io_service)
 {
+	for (auto& threshold : m_gyro_threshold)
+		threshold.store(Motion::kDefaultGyroThresholdTurnsPerSecond, std::memory_order_relaxed);
 	if (!connect())
 	{
 		throw std::runtime_error("dsu client can't open the udp connection");
@@ -92,9 +100,18 @@ bool DSUControllerProvider::connect()
         timeval timeout{.tv_usec = 200 * 1000};
         setsockopt(m_socket.native_handle(), SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeval));
 #endif
-		// reset data
-		m_state = {};
-		m_prev_state = {};
+		// Reset per-client state while holding the locks used by the reader and
+		// motion paths. Never acquire both locks at once.
+		for (size_t i = 0; i < kMaxClients; ++i)
+		{
+			{
+				std::scoped_lock lock(m_mutex[i]);
+				m_state[i] = {};
+				m_prev_state[i] = {};
+				m_last_motion_timestamp[i] = 0;
+				m_last_motion_time[i] = {};
+			}
+		}
 
 		// restart threads
 		return true;
@@ -245,6 +262,61 @@ MotionSample DSUControllerProvider::get_motion_sample(uint8_t index) const
 	return m_state[index].motion_sample;
 }
 
+void DSUControllerProvider::start_gyro_calibration(uint8_t index)
+{
+	if (index >= kMaxClients)
+		return;
+	std::scoped_lock lock(m_mutex[index]);
+	m_motion_handler[index].startGyroCalibration();
+}
+
+void DSUControllerProvider::cancel_gyro_calibration(uint8_t index)
+{
+	if (index >= kMaxClients)
+		return;
+	std::scoped_lock lock(m_mutex[index]);
+	m_motion_handler[index].cancelGyroCalibration();
+}
+
+GyroCalibrationState DSUControllerProvider::get_gyro_calibration_state(uint8_t index, float& progress) const
+{
+	if (index >= kMaxClients)
+	{
+		progress = 0.0f;
+		return GyroCalibrationState::Idle;
+	}
+	std::scoped_lock lock(m_mutex[index]);
+	return m_motion_handler[index].getGyroCalibrationState(progress);
+}
+
+void DSUControllerProvider::set_gyro_bias(uint8_t index, float x, float y, float z)
+{
+	if (index >= kMaxClients)
+		return;
+	std::scoped_lock lock(m_mutex[index]);
+	m_motion_handler[index].setGyroBias(x, y, z);
+}
+
+void DSUControllerProvider::get_gyro_bias(uint8_t index, float bias[3]) const
+{
+	if (index >= kMaxClients)
+	{
+		bias[0] = bias[1] = bias[2] = 0.0f;
+		return;
+	}
+	std::scoped_lock lock(m_mutex[index]);
+	m_motion_handler[index].getGyroBias(bias);
+}
+
+void DSUControllerProvider::set_gyro_threshold(uint8_t index, float threshold)
+{
+	if (index >= kMaxClients)
+		return;
+	if (!std::isfinite(threshold))
+		threshold = Motion::kDefaultGyroThresholdTurnsPerSecond;
+	m_gyro_threshold[index].store(
+		std::clamp(threshold, 0.0f, Motion::kMaximumGyroThresholdTurnsPerSecond), std::memory_order_relaxed);
+}
 
 void DSUControllerProvider::reader_thread()
 {
@@ -368,7 +440,6 @@ void DSUControllerProvider::reader_thread()
 				m_prev_state[index] = m_state[index];
 				m_state[index] = *rsp;
 				m_wait_cond[index].notify_all();
-				// update motion info immediately, guaranteeing that we dont drop packets
 				integrate_motion(index, *rsp);
 				break;
 			}
@@ -418,28 +489,47 @@ void DSUControllerProvider::writer_thread()
 void DSUControllerProvider::integrate_motion(uint8_t index, const DataResponse& data_response)
 {
 	const uint64 ts = data_response.GetMotionTimestamp();
-	if (ts <= m_last_motion_timestamp[index])
+	float deltaTime = 0.01f;
+	if (ts != 0)
 	{
-		const uint64 dif = m_last_motion_timestamp[index] - ts;
-		if (dif >= 10000000) // timestamp more than 10 seconds in the past, a controller reset probably happened
-			m_last_motion_timestamp[index] = 0;
-		return;
+		if (ts <= m_last_motion_timestamp[index])
+		{
+			const uint64 dif = m_last_motion_timestamp[index] - ts;
+			if (dif >= 10000000) // timestamp more than 10 seconds in the past, reset
+				m_last_motion_timestamp[index] = 0;
+			return;
+		}
+		const uint64 elapsedTime = ts - m_last_motion_timestamp[index];
+		m_last_motion_timestamp[index] = ts;
+		deltaTime = (float)((double)elapsedTime / 1000000.0);
+		if (!std::isfinite(deltaTime) || deltaTime > 0.1f || deltaTime <= 0.0f)
+			deltaTime = 0.01f;
+	}
+	else
+	{
+		const auto now = std::chrono::steady_clock::now();
+		if (m_last_motion_time[index] != std::chrono::steady_clock::time_point{})
+			deltaTime = std::chrono::duration<float>(now - m_last_motion_time[index]).count();
+		m_last_motion_time[index] = now;
+
+		if (!std::isfinite(deltaTime) || deltaTime > 0.1f || deltaTime <= 0.0f)
+			deltaTime = 0.01f;
 	}
 
-	const uint64 elapsedTime = ts - m_last_motion_timestamp[index];
-	m_last_motion_timestamp[index] = ts;
-	const double elapsedTimeD = (double)elapsedTime / 1000000.0;
 	const auto& acc = data_response.GetAcceleration();
 	const auto& gyro = data_response.GetGyro();
 
-	m_motion_handler[index].processMotionSample((float)elapsedTimeD,
+	// DSU carries gyro as pitch, yaw, roll (degrees/sec). Match Eden's mapping:
+	// pitch -> X, roll -> Y, and negative yaw -> Z. Acceleration follows the
+	// same provider coordinate transform used by Eden's UDP input path.
+	m_motion_handler[index].processMotionSample(deltaTime,
 	                                            gyro.x * 0.0174533f,
-	                                            gyro.y * 0.0174533f,
 	                                            gyro.z * 0.0174533f,
+	                                            -gyro.y * 0.0174533f,
 	                                            acc.x,
-	                                            -acc.y,
-	                                            -acc.z);
-
+	                                            -acc.z,
+	                                            acc.y,
+	                                            m_gyro_threshold[index].load(std::memory_order_relaxed));
 	m_state[index].motion_sample = m_motion_handler[index].getMotionSample();
 }
 

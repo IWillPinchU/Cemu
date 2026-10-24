@@ -2,6 +2,8 @@
 
 #include "input/InputManager.h"
 #include "input/motion/MotionSample.h"
+#include "input/motion/GyroThreshold.h"
+#include "input/motion/GyroCalibration.h"
 #include "input/api/ControllerState.h"
 
 namespace pugi
@@ -125,6 +127,12 @@ public:
 	virtual void start_rumble() {}
 	virtual void stop_rumble() {}
 
+	virtual void start_gyro_calibration() {}
+	virtual void cancel_gyro_calibration() {}
+	virtual GyroCalibrationState get_gyro_calibration_state(float& progress) const { progress = 0.0f; return GyroCalibrationState::Idle; }
+	virtual void set_gyro_bias(float x, float y, float z) {}
+	virtual void get_gyro_bias(float bias[3]) const { bias[0] = bias[1] = bias[2] = 0.0f; }
+
 	virtual std::string get_button_name(uint64 button) const;
 
 	virtual void save(pugi::xml_node& node){}
@@ -140,10 +148,12 @@ public:
 	{
 		AxisSetting axis{}, rotation{}, trigger{};
 		float rumble = 0;
+		float gyro_sensitivity = 1.0f;
+		float gyro_threshold = Motion::kDefaultGyroThresholdTurnsPerSecond; // turns per second
 		bool motion = false; // only valid when has_motion is true
 	};
 	Settings get_settings() const;
-	void set_settings(const Settings& settings);
+	virtual void set_settings(const Settings& settings);
 	void set_axis_settings(const AxisSetting& settings);
 	void set_rotation_settings(const AxisSetting& settings);
 	void set_trigger_settings(const AxisSetting& settings);
