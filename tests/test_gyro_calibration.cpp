@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -137,6 +138,112 @@ void test_dsu_scale_and_axis_mapping()
 	DSUMotion::MapAcceleration(1.0f, 2.0f, 3.0f, acceleration);
 	CHECK(acceleration[0] == 1.0f && acceleration[1] == -2.0f && acceleration[2] == -3.0f);
 }
+
+void test_calibration_convergence_ground_truth()
+{
+	MahonySensorFusion imu;
+	imu.startGyroCalibration();
+	const float true_bias_x = 0.10f;
+	const float true_bias_y = -0.05f;
+	const float true_bias_z = 0.08f;
+	for (int i = 0; i < GyroCalibration::kSampleCount; ++i)
+		imu.updateIMU(0.01f, true_bias_x, true_bias_y, true_bias_z, 0.0f, 0.0f, 1.0f);
+
+	float progress = 0.0f;
+	CHECK(imu.getGyroCalibrationState(progress) == GyroCalibrationState::Success);
+	float bias[3]{};
+	imu.getGyroBias(bias);
+
+	// Theoretical value: 1 - (0.99)^300 ≈ 0.950959
+	const float expected_ratio = 1.0f - std::pow(0.99f, 300.0f);
+	CHECK(std::abs(bias[0] - true_bias_x * expected_ratio) < 0.001f);
+	CHECK(std::abs(bias[1] - true_bias_y * expected_ratio) < 0.001f);
+	CHECK(std::abs(bias[2] - true_bias_z * expected_ratio) < 0.001f);
+}
+
+void test_calibration_from_initial_nonzero_bias()
+{
+	MahonySensorFusion imu;
+	imu.setGyroBias(0.05f, 0.05f, 0.05f);
+	imu.startGyroCalibration();
+	for (int i = 0; i < GyroCalibration::kSampleCount; ++i)
+		imu.updateIMU(0.01f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f);
+
+	float bias[3]{};
+	imu.getGyroBias(bias);
+	// Initial 0.05 * (0.99)^300 ≈ 0.05 * 0.04904 ≈ 0.00245
+	CHECK(bias[0] < 0.005f && bias[0] > 0.0f);
+}
+
+void test_calibration_nan_inf_safety()
+{
+	MahonySensorFusion imu;
+	imu.setGyroBias(0.01f, 0.02f, 0.03f);
+
+	// 1. In idle state, NaN or Inf shouldn't corrupt bias
+	imu.updateIMU(0.01f, std::numeric_limits<float>::infinity(), 0.0f, 0.0f, 0.0f, 0.0f, 1.0f);
+	imu.updateIMU(0.01f, 0.0f, 0.0f, 0.0f, std::nanf(""), 0.0f, 1.0f);
+	float bias[3]{};
+	imu.getGyroBias(bias);
+	CHECK(bias[0] == 0.01f && bias[1] == 0.02f && bias[2] == 0.03f);
+
+	// 2. In calibrating state, Inf fails calibration and leaves committed bias intact
+	imu.startGyroCalibration();
+	imu.updateIMU(0.01f, 0.1f, 0.1f, 0.1f, 0.0f, 0.0f, 1.0f);
+	imu.updateIMU(0.01f, 0.0f, -std::numeric_limits<float>::infinity(), 0.0f, 0.0f, 0.0f, 1.0f);
+	float progress = 0.0f;
+	CHECK(imu.getGyroCalibrationState(progress) == GyroCalibrationState::Failed);
+	imu.getGyroBias(bias);
+	CHECK(bias[0] == 0.01f && bias[1] == 0.02f && bias[2] == 0.03f);
+}
+
+void test_calibration_set_bias_restarts()
+{
+	MahonySensorFusion imu;
+	imu.startGyroCalibration();
+	for (int i = 0; i < 150; ++i)
+		imu.updateIMU(0.01f, 0.5f, 0.5f, 0.5f, 0.0f, 0.0f, 1.0f);
+
+	float progress = 0.0f;
+	CHECK(imu.getGyroCalibrationState(progress) == GyroCalibrationState::Calibrating);
+	CHECK(std::abs(progress - 150.0f / 300.0f) < 0.0001f);
+
+	// setGyroBias during calibration restarts calibration with new baseline
+	imu.setGyroBias(0.1f, 0.1f, 0.1f);
+	CHECK(imu.getGyroCalibrationState(progress) == GyroCalibrationState::Calibrating);
+	CHECK(progress == 0.0f);
+
+	// Need a full 300 samples now
+	for (int i = 0; i < 299; ++i)
+		imu.updateIMU(0.01f, 0.1f, 0.1f, 0.1f, 0.0f, 0.0f, 1.0f);
+	CHECK(imu.getGyroCalibrationState(progress) == GyroCalibrationState::Calibrating);
+
+	imu.updateIMU(0.01f, 0.1f, 0.1f, 0.1f, 0.0f, 0.0f, 1.0f);
+	CHECK(imu.getGyroCalibrationState(progress) == GyroCalibrationState::Success);
+	CHECK(progress == 1.0f);
+}
+
+void test_repeated_calibration()
+{
+	MahonySensorFusion imu;
+	// First calibration to 0.1
+	imu.startGyroCalibration();
+	for (int i = 0; i < GyroCalibration::kSampleCount; ++i)
+		imu.updateIMU(0.01f, 0.1f, 0.1f, 0.1f, 0.0f, 0.0f, 1.0f);
+	float progress = 0.0f;
+	CHECK(imu.getGyroCalibrationState(progress) == GyroCalibrationState::Success);
+
+	// Second calibration to -0.2
+	imu.startGyroCalibration();
+	CHECK(imu.getGyroCalibrationState(progress) == GyroCalibrationState::Calibrating);
+	for (int i = 0; i < GyroCalibration::kSampleCount; ++i)
+		imu.updateIMU(0.01f, -0.2f, -0.2f, -0.2f, 0.0f, 0.0f, 1.0f);
+	CHECK(imu.getGyroCalibrationState(progress) == GyroCalibrationState::Success);
+
+	float bias[3]{};
+	imu.getGyroBias(bias);
+	CHECK(bias[0] < -0.18f && bias[0] > -0.21f);
+}
 } // namespace
 
 int main()
@@ -148,6 +255,11 @@ int main()
 		test_passive_rest_tracking_boundary();
 		test_threshold_and_sensitivity_output();
 		test_dsu_scale_and_axis_mapping();
+		test_calibration_convergence_ground_truth();
+		test_calibration_from_initial_nonzero_bias();
+		test_calibration_nan_inf_safety();
+		test_calibration_set_bias_restarts();
+		test_repeated_calibration();
 		std::cout << "All gyro checks passed.\n";
 		return 0;
 	}
@@ -157,5 +269,3 @@ int main()
 		return 1;
 	}
 }
-
-

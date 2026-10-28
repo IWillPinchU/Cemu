@@ -45,6 +45,8 @@ public:
 		return m_state;
 	}
 
+	// Sets the committed bias. If calibration is in progress, restarts the
+	// calibration window using the new bias as the candidate baseline.
 	void setBias(float x, float y, float z)
 	{
 		m_bias[0] = x;
@@ -74,37 +76,38 @@ public:
 			return false;
 		}
 
-		float* estimate = m_state == GyroCalibrationState::Calibrating ? m_candidateBias : m_bias;
-		const float dx = gx - estimate[0];
-		const float dy = gy - estimate[1];
-		const float dz = gz - estimate[2];
+		if (m_state == GyroCalibrationState::Calibrating)
+		{
+			// Eden-style EMA on every sample; no stillness/movement rejection.
+			m_candidateBias[0] = m_candidateBias[0] * 0.99f + gx * 0.01f;
+			m_candidateBias[1] = m_candidateBias[1] * 0.99f + gy * 0.01f;
+			m_candidateBias[2] = m_candidateBias[2] * 0.99f + gz * 0.01f;
+
+			++m_sampleCount;
+			m_progress = static_cast<float>(m_sampleCount) / kSampleCount;
+			if (m_sampleCount < kSampleCount)
+				return false;
+
+			std::copy(std::begin(m_candidateBias), std::end(m_candidateBias), std::begin(m_bias));
+			m_state = GyroCalibrationState::Success;
+			return true;
+		}
+
+		const float dx = gx - m_bias[0];
+		const float dy = gy - m_bias[1];
+		const float dz = gz - m_bias[2];
 		const float gyroLength = std::sqrt(dx * dx + dy * dy + dz * dz);
 		const float accelLength = std::sqrt(ax * ax + ay * ay + az * az);
 
 		// Match Eden's slow background bias adaptation when the sample resembles rest.
 		if (gyroLength < kRestThreshold && accelLength >= 0.90f && accelLength <= 1.10f)
 		{
-			estimate[0] = estimate[0] * 0.9999f + gx * 0.0001f;
-			estimate[1] = estimate[1] * 0.9999f + gy * 0.0001f;
-			estimate[2] = estimate[2] * 0.9999f + gz * 0.0001f;
+			m_bias[0] = m_bias[0] * 0.9999f + gx * 0.0001f;
+			m_bias[1] = m_bias[1] * 0.9999f + gy * 0.0001f;
+			m_bias[2] = m_bias[2] * 0.9999f + gz * 0.0001f;
 		}
 
-		if (m_state != GyroCalibrationState::Calibrating)
-			return false;
-
-		// Eden-style EMA on every sample; no stillness/movement rejection.
-		m_candidateBias[0] = m_candidateBias[0] * 0.99f + gx * 0.01f;
-		m_candidateBias[1] = m_candidateBias[1] * 0.99f + gy * 0.01f;
-		m_candidateBias[2] = m_candidateBias[2] * 0.99f + gz * 0.01f;
-
-		++m_sampleCount;
-		m_progress = static_cast<float>(m_sampleCount) / kSampleCount;
-		if (m_sampleCount < kSampleCount)
-			return false;
-
-		std::copy(std::begin(m_candidateBias), std::end(m_candidateBias), std::begin(m_bias));
-		m_state = GyroCalibrationState::Success;
-		return true;
+		return false;
 	}
 
 private:
